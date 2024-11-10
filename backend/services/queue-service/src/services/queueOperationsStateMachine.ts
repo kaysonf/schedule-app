@@ -17,16 +17,12 @@ export class QueueOperationsStateMachine {
     const queueRow: QueueRow = {
       id: event.joinId,
       displayName: event.joinId,
-      order: this.state.order,
+      order: this.state.order++,
       status: QueueStatus.Open,
       queueId: event.queueId,
     };
 
-    const success = await this.queueOperationsDb.onJoinQueue(queueRow);
-    if (success) {
-      this.state.order++;
-    }
-    return success;
+    return await this.queueOperationsDb.onJoinQueue(queueRow);
   }
 
   public async onServe(event: ServeEvent) {

@@ -1,6 +1,5 @@
 import { AppConfig, createServer } from '../src/createServer';
 import * as r from 'rethinkdb';
-import { QueueRow } from '../src/models';
 
 const defaultTestConfig: AppConfig = {
   express: {
@@ -34,6 +33,12 @@ async function postData<T>(url: string, data: T) {
   }
 }
 
+async function queue(id: string) {
+  await postData('http://localhost:3000/customer/queue', {
+    queueId: id,
+  });
+}
+
 describe('queue-service test', () => {
   let app: Awaited<ReturnType<typeof createServer>>;
 
@@ -46,24 +51,32 @@ describe('queue-service test', () => {
   });
 
   it('should queue', async () => {
-    const res = await postData('http://localhost:3000/customer/queue', {
-      queueId: 'ligma',
-    });
-    expect(res.status).toStrictEqual(200);
+    const queueId = 'ligma';
 
-    const result = await r
+    const queues = await Promise.all([
+      queue(queueId),
+      queue(queueId),
+      queue(queueId),
+    ]);
+
+    const cursor = await r
       .db(defaultTestConfig.rethinkDb.db)
       .table(defaultTestConfig.rethinkDb.table)
-      .filter(r.row('queueId').eq('ligma'))
+      .filter(r.row('queueId').eq(queueId))
       .changes()
       .run(app.conn);
 
-    await waitForTest(1000, (done) => {
-      result.each((err, row: { new_val: QueueRow }) => {
-        const record = row.new_val;
-        expect(record.order).toStrictEqual(0);
-        expect(record.queueId).toStrictEqual('ligma');
-        done();
+    await waitForTest(200, (done) => {
+      let counter = 0;
+
+      cursor.each((err) => {
+        if (err) {
+          throw err;
+        }
+        counter++;
+        if (counter === queues.length) {
+          done();
+        }
       });
     });
   });

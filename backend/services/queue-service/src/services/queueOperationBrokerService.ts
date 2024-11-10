@@ -32,7 +32,7 @@ export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
   }
 
   public async joinQueue(queueId: string) {
-    const joinId = `${queueId}-${this.idGen}`;
+    const joinId = `${queueId}-${++this.idGen}`;
 
     const event: JoinQueueEvent = {
       queueId,
@@ -41,8 +41,6 @@ export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
     };
 
     await this.sendToQueueTopic(event);
-
-    this.idGen++;
 
     return event;
   }
