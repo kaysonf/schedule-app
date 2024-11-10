@@ -2,19 +2,24 @@ import express from 'express';
 import { BaseQueueRequest } from '../models';
 
 import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
-import { IQueueOperationsDb } from '../services/queueOperationsDbService';
 
-function creatAdminRouter(
-  queueOperations: IQueueOperationBroker,
-  db: IQueueOperationsDb
-) {
+function creatAdminRouter(queueOperations: IQueueOperationBroker) {
   const router = express.Router();
 
   router.post(
-    '/next',
-    (req: express.Request<unknown, unknown, BaseQueueRequest>, res) => {
+    '/serve',
+    (
+      req: express.Request<
+        unknown,
+        unknown,
+        BaseQueueRequest & { joinId: string }
+      >,
+      res
+    ) => {
       try {
-        queueOperations.next(req.body.queueId).catch(console.error);
+        queueOperations
+          .serve(req.body.queueId, req.body.joinId)
+          .catch(console.error);
 
         res.json({ ok: true });
       } catch (e) {
@@ -22,12 +27,6 @@ function creatAdminRouter(
       }
     }
   );
-
-  router.get('/meta', async (req, res) => {
-    const meta = await db.getQueueMeta(req.query.queueId as string);
-
-    res.json(meta);
-  });
 
   return router;
 }

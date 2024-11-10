@@ -5,7 +5,7 @@ export enum QueueStatus {
 
 export enum QueueOperation {
   JoinQueue = 'JoinQueue',
-  Next = 'Next',
+  Serve = 'Serve',
 }
 
 export type QueueRow = {
@@ -22,8 +22,10 @@ export type BaseQueueRequest = {
 
 type BaseEvent<T extends QueueOperation> = BaseQueueRequest & { op: T };
 
-export type NextEvent = BaseEvent<QueueOperation.Next>;
+export type ServeEvent = BaseEvent<QueueOperation.Serve> & {
+  joinId: string;
+};
 export type JoinQueueEvent = BaseEvent<QueueOperation.JoinQueue> & {
   joinId: string;
 };
-export type QueueEvents = NextEvent | JoinQueueEvent;
+export type QueueEvents = ServeEvent | JoinQueueEvent;

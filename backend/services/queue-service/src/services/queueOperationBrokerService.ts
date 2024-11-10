@@ -1,16 +1,17 @@
 import { Producer } from 'kafkajs';
 import {
   JoinQueueEvent,
-  NextEvent,
+  ServeEvent,
   QueueEvents,
   QueueOperation,
 } from '../models';
 
 export interface IQueueOperationBroker {
-  next: (queueId: string) => Promise<NextEvent>;
+  serve: (queueId: string, joinId: string) => Promise<ServeEvent>;
   joinQueue: (queueId: string) => Promise<JoinQueueEvent>;
 }
-export class QueueOperationBrokerService implements IQueueOperationBroker {
+export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
+  private idGen = 0;
   constructor(
     private args: {
       topic: string;
@@ -18,10 +19,11 @@ export class QueueOperationBrokerService implements IQueueOperationBroker {
     }
   ) {}
 
-  public async next(queueId: string) {
-    const event: NextEvent = {
+  public async serve(queueId: string, joinId: string) {
+    const event: ServeEvent = {
       queueId,
-      op: QueueOperation.Next,
+      op: QueueOperation.Serve,
+      joinId,
     };
 
     await this.sendToQueueTopic(event);
@@ -30,7 +32,7 @@ export class QueueOperationBrokerService implements IQueueOperationBroker {
   }
 
   public async joinQueue(queueId: string) {
-    const joinId = Math.random().toString();
+    const joinId = `${queueId}-${this.idGen}`;
 
     const event: JoinQueueEvent = {
       queueId,
@@ -39,6 +41,8 @@ export class QueueOperationBrokerService implements IQueueOperationBroker {
     };
 
     await this.sendToQueueTopic(event);
+
+    this.idGen++;
 
     return event;
   }

@@ -1,33 +1,30 @@
 import { Kafka } from 'kafkajs';
 import { QueueEvents } from './models';
 import * as r from 'rethinkdb';
+
 export async function setupKafka(args: {
-  alwaysFresh: boolean;
+  reset: boolean;
   broker: string;
   topic: string;
 }) {
   const kafka = new Kafka({
-    brokers: ['localhost:9092'],
+    brokers: [args.broker],
   });
 
   const admin = kafka.admin();
   await admin.connect();
-  const topicsList = await admin.listTopics();
-  const topics = new Set(topicsList);
-
-  if (args.alwaysFresh && topics.has(args.topic)) {
+  if (args.reset && (await topicExists())) {
     await admin.deleteTopics({
       topics: [args.topic],
     });
-
-    topics.delete(args.topic);
   }
 
-  if (!topics.has(args.topic)) {
+  if (!(await topicExists())) {
     await admin.createTopics({
       topics: [{ topic: args.topic }],
     });
   }
+  await admin.disconnect();
 
   const producer = kafka.producer();
   await producer.connect();
@@ -46,8 +43,8 @@ export async function setupKafka(args: {
       });
 
       return {
-        on: (onQueueEvent: (event: QueueEvents) => void) => {
-          consumer.run({
+        on: async (onQueueEvent: (event: QueueEvents) => void) => {
+          await consumer.run({
             eachMessage: async (payload) => {
               const value = payload.message.value;
               if (value) {
@@ -61,18 +58,70 @@ export async function setupKafka(args: {
             },
           });
         },
+        close: async () => {
+          await consumer.disconnect();
+        },
       };
+
+      // return new Promise<CreateConsumer>((resolve) => {
+      //   consumer.on('consumer.group_join', () => {
+      //     console.log('consumer.group_join');
+      //     const toResolve: CreateConsumer = {
+      //       on: (onQueueEvent: (event: QueueEvents) => void) => {
+      //         consumer.run({
+      //           eachMessage: async (payload) => {
+      //             const value = payload.message.value;
+      //             if (value) {
+      //               try {
+      //                 const queueEvent = JSON.parse(value.toString());
+      //                 onQueueEvent(queueEvent);
+      //               } catch (e) {
+      //                 console.error(e);
+      //               }
+      //             }
+      //           },
+      //         });
+      //       },
+      //       close: async () => {
+      //         await consumer.disconnect();
+      //       },
+      //     };
+      //
+      //     resolve(toResolve);
+      //   });
+      // });
     },
   };
+
+  async function topicExists() {
+    return (await admin.listTopics()).includes(args.topic);
+  }
 }
 
-export async function setupRethinkDb(): Promise<r.Connection> {
-  return new Promise<r.Connection>((resolve, reject) => {
-    r.connect({ host: 'localhost', port: 28015 }, async (err, conn) => {
-      if (err) {
-        reject(err);
-      }
-      resolve(conn);
-    });
-  });
+export async function setupRethinkDb(args: {
+  host: string;
+  port: number;
+  reset: boolean;
+  db: string;
+  table: string;
+}): Promise<r.Connection> {
+  const connection = await r.connect({ host: args.host, port: args.port });
+
+  if (connection) {
+    if (args.reset && (await tableIsInDb())) {
+      await r.db(args.db).tableDrop(args.table).run(connection);
+    }
+
+    if (!(await tableIsInDb())) {
+      await r.db(args.db).tableCreate(args.table).run(connection);
+    }
+  }
+
+  return connection;
+
+  async function tableIsInDb() {
+    return (await r.db(args.db).tableList().run(connection)).includes(
+      args.table
+    );
+  }
 }

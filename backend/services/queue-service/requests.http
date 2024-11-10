@@ -7,12 +7,10 @@ Content-Type: application/json
 }
 
 ###
-POST http://localhost:3000/admin/next
+POST http://localhost:3000/admin/serve
 Content-Type: application/json
 
 {
-  "queueId": "nails"
+  "queueId": "nails",
+  "joinId": "nails-1"
 }
-
-###
-GET http://localhost:3000/admin/meta?queueId=nails

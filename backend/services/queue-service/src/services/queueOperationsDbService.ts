@@ -1,10 +1,9 @@
-import { JoinQueueEvent, NextEvent, QueueRow, QueueStatus } from '../models';
+import { QueueRow, QueueStatus } from '../models';
 import * as r from 'rethinkdb';
 
 export interface IQueueOperationsDb {
-  onNext: (event: NextEvent) => Promise<void>;
-  onJoinQueue: (event: JoinQueueEvent) => Promise<void>;
-  getQueueMeta: (queueId: string) => Promise<QueueMeta | undefined>;
+  onServe: (queueId: string, joinId: string) => Promise<boolean>;
+  onJoinQueue: (row: QueueRow) => Promise<boolean>;
 }
 
 function queueRow(data: Partial<QueueRow>) {
@@ -15,51 +14,31 @@ function row(prop: keyof QueueRow) {
   return r.row(prop);
 }
 
-type QueueMeta = {
-  startOfQueue: number;
-  endOfQueue: number;
-};
 export class QueueOperationsRethinkDbService implements IQueueOperationsDb {
-  private queues: Map<string, QueueMeta>;
-
   constructor(
     private args: {
       conn: r.Connection;
-      db: string;
       table: string;
     }
-  ) {
-    this.queues = new Map();
-  }
-  public async onJoinQueue(event: JoinQueueEvent) {
-    const meta = await this.getQueueMeta(event.queueId);
+  ) {}
+  public async onJoinQueue(row: QueueRow) {
+    const result = await r
+      .table(this.args.table)
+      .insert(row)
+      .run(this.args.conn);
 
-    const queueRow: QueueRow = {
-      id: event.joinId,
-      displayName: event.joinId,
-      order: meta.endOfQueue,
-      status: QueueStatus.Open,
-      queueId: event.queueId,
-    };
-
-    await r.table(this.args.table).insert(queueRow).run(this.args.conn);
-
-    meta.endOfQueue += 1;
-    this.queues.set(event.queueId, meta);
+    return result.inserted > 0;
   }
 
-  public async onNext(event: NextEvent) {
-    const forQueueId = row('queueId').eq(event.queueId);
-    const isOpenStatus = row('status').eq(QueueStatus.Open);
-    const meta = await this.getQueueMeta(event.queueId);
-    const isNextInQueue = () => {
-      return row('order').lt(meta.startOfQueue + 1); // lte
+  public async onServe(queueId: string, joinId: string) {
+    const forQueueId = row('queueId').eq(queueId);
+    const isJoinId = () => {
+      return row('id').eq(joinId);
     };
 
     const result = await r
       .table(this.args.table)
-      .filter(forQueueId.and(isOpenStatus).and(isNextInQueue()))
-      .limit(1)
+      .filter(forQueueId.and(isJoinId()))
       .update(
         queueRow({
           status: QueueStatus.Closed,
@@ -67,36 +46,6 @@ export class QueueOperationsRethinkDbService implements IQueueOperationsDb {
       )
       .run(this.args.conn);
 
-    if (result.replaced > 0) {
-      meta.startOfQueue += 1;
-      this.queues.set(event.queueId, meta);
-    }
-  }
-
-  public async getQueueMeta(queueId: string) {
-    const queueMeta = this.queues.get(queueId) || {
-      startOfQueue: 0,
-      endOfQueue: 0,
-    };
-
-    return {
-      ...queueMeta,
-    };
-  }
-
-  public async removeTables() {
-    try {
-      await r.db(this.args.db).tableDrop(this.args.table).run(this.args.conn);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  public async createTables() {
-    try {
-      await r.db(this.args.db).tableCreate(this.args.table).run(this.args.conn);
-    } catch (e) {
-      console.error(e);
-    }
+    return result.replaced > 0;
   }
 }
