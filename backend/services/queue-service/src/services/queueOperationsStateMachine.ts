@@ -1,23 +1,14 @@
 import { JoinQueueEvent, ServeEvent, QueueRow, QueueStatus } from '../models';
 import { IQueueOperationsDb } from './queueOperationsDbService';
 
-type QueueState = {
-  order: number;
-};
 export class QueueOperationsStateMachine {
-  private state: QueueState;
-
-  constructor(private queueOperationsDb: IQueueOperationsDb) {
-    this.state = {
-      order: 0,
-    };
-  }
+  constructor(private queueOperationsDb: IQueueOperationsDb) {}
 
   public async onJoinQueue(event: JoinQueueEvent) {
     const queueRow: QueueRow = {
       id: event.joinId,
       displayName: event.joinId,
-      order: this.state.order++,
+      order: event.order,
       status: QueueStatus.Open,
       queueId: event.queueId,
     };

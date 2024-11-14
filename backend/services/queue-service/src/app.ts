@@ -4,6 +4,9 @@ createServer({
   express: {
     port: 3000,
   },
+  socketIo: {
+    port: 3001,
+  },
   reset: true,
   rethinkDb: {
     db: 'test',

@@ -1,9 +1,14 @@
 import { AppConfig, createServer } from '../src/createServer';
-import * as r from 'rethinkdb';
+import { QueueRow } from '../src/models';
+import { io, Socket } from 'socket.io-client';
+import { waitForCondition } from '../../../shared/asyncUtils';
 
-const defaultTestConfig: AppConfig = {
+const testConfig: AppConfig = {
   express: {
     port: 3000,
+  },
+  socketIo: {
+    port: 3001,
   },
   reset: true,
   rethinkDb: {
@@ -21,11 +26,11 @@ const defaultTestConfig: AppConfig = {
 async function postData<T>(url: string, data: T) {
   try {
     return await fetch(url, {
-      method: 'POST', // Specify the HTTP method
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json', // Specify content type as JSON
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data), // Convert the data to a JSON string
+      body: JSON.stringify(data),
     });
   } catch (error) {
     console.error('Error in postData:', error);
@@ -34,62 +39,72 @@ async function postData<T>(url: string, data: T) {
 }
 
 async function queue(id: string) {
-  await postData('http://localhost:3000/customer/queue', {
+  await postData(`http://localhost:${testConfig.express.port}/customer/queue`, {
     queueId: id,
+  });
+}
+
+async function serve(queueId: string, joinId: string) {
+  await postData(`http://localhost:${testConfig.express.port}/admin/serve`, {
+    queueId,
+    joinId,
   });
 }
 
 describe('queue-service test', () => {
   let app: Awaited<ReturnType<typeof createServer>>;
+  let client: Socket;
+
+  const totalCustomers = 50;
+  const customersInQueue: QueueRow[] = [];
+  const queueId = 'ligma';
 
   beforeAll(async () => {
-    app = await createServer(defaultTestConfig);
+    const { done, condition: clientConnected } = waitForCondition();
+    app = await createServer(testConfig);
+
+    client = io(`http://localhost:${testConfig.socketIo.port}`);
+    client.on('connect', done);
+
+    await clientConnected(1000);
   });
 
   afterAll(async () => {
+    client.disconnect();
     await app.shutdown();
   });
 
   it('should queue', async () => {
-    const queueId = 'ligma';
+    const { done, condition } = waitForCondition();
 
-    const queues = await Promise.all([
-      queue(queueId),
-      queue(queueId),
-      queue(queueId),
-    ]);
-
-    const cursor = await r
-      .db(defaultTestConfig.rethinkDb.db)
-      .table(defaultTestConfig.rethinkDb.table)
-      .filter(r.row('queueId').eq(queueId))
-      .changes()
-      .run(app.conn);
-
-    await waitForTest(200, (done) => {
-      let counter = 0;
-
-      cursor.each((err) => {
-        if (err) {
-          throw err;
-        }
-        counter++;
-        if (counter === queues.length) {
-          done();
-        }
-      });
+    client.on('query_result', (row: { new_val: QueueRow }) => {
+      customersInQueue.push(row.new_val);
+      if (customersInQueue.length === totalCustomers) {
+        done();
+      }
     });
+    client.emit('query', { queueId });
+
+    const customers: Promise<void>[] = [];
+
+    for (let i = 0; i < totalCustomers; i++) {
+      customers.push(queue(queueId));
+    }
+
+    await Promise.all(customers);
+
+    await condition(1000);
+    expect(customersInQueue.length).toStrictEqual(customers.length);
+
+    const uniqueOrdering = customersInQueue.reduce((ordering, curr) => {
+      ordering.add(curr.order);
+      return ordering;
+    }, new Set<number>());
+
+    expect(uniqueOrdering.size).toStrictEqual(customers.length);
   });
+
+  // it('can serve', async () => {
+  //
+  // });
 });
-
-function waitForTest(ms: number, testFn: (done: () => void) => void) {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(`assertion failed to run within ${ms} ms`);
-    }, ms);
-    testFn(() => {
-      clearTimeout(timeout);
-      resolve(true);
-    });
-  });
-}

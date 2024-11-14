@@ -8,7 +8,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "format": "prettier --write \"services/**/*.ts\"",
-    "lint:fix": "eslint \"services/**/*.ts\" --fix"
+    "lint:fix": "eslint \"services/**/*.ts\" \"shared/**/*.ts\" --fix"
   },
   "keywords": [],
   "author": "",
@@ -18,7 +18,8 @@
     "express": "^4.21.1",
     "kafkajs": "^2.2.4",
     "rethinkdb": "^2.4.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

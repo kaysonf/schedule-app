@@ -6,9 +6,14 @@ import { setupKafka, setupRethinkDb } from './setup';
 import { QueueOperationsRethinkDbService } from './services/queueOperationsDbService';
 import { QueueOperation } from './models';
 import { QueueOperationsStateMachine } from './services/queueOperationsStateMachine';
-
+import http from 'http';
+import { Server } from 'socket.io';
+import { RealTimeQueryService } from './services/realTimeQueryService';
 export type AppConfig = {
   express: {
+    port: number;
+  };
+  socketIo: {
     port: number;
   };
   reset: boolean;
@@ -29,6 +34,14 @@ export async function createServer(config: AppConfig) {
   app.use(express.json());
 
   const server = await app.listen(config.express.port);
+  const socketIoServer = http.createServer();
+  await socketIoServer.listen(config.socketIo.port);
+  const io = new Server(socketIoServer, {
+    cors: {
+      origin: 'https://electron-socket-io-playground.vercel.app',
+      methods: ['GET', 'POST'],
+    },
+  });
 
   const conn = await setupRethinkDb({
     host: config.rethinkDb.host,
@@ -59,8 +72,13 @@ export async function createServer(config: AppConfig) {
 
   app.use('/admin', creatAdminRouter(queueOperations));
   app.use('/customer', createCustomerRouter(queueOperations));
+  const rtqs: RealTimeQueryService[] = [];
+  io.on('connect', (socket) => {
+    const rtq = new RealTimeQueryService(socket, config.rethinkDb.table, conn);
+    rtqs.push(rtq);
+  });
 
-  const consumer = await createConsumer();
+  const consumer = createConsumer();
   await consumer.on((event) => {
     switch (event.op) {
       case QueueOperation.JoinQueue: {
@@ -75,6 +93,11 @@ export async function createServer(config: AppConfig) {
   });
 
   const shutdown = async () => {
+    await socketIoServer.close();
+    for (const rtq of rtqs) {
+      await rtq.cleanup();
+    }
+    await io.close();
     await conn.close();
     await consumer.close();
     await producer.disconnect();
@@ -82,7 +105,6 @@ export async function createServer(config: AppConfig) {
   };
 
   return {
-    conn,
     shutdown,
   };
 }

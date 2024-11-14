@@ -31,19 +31,20 @@ export async function setupKafka(args: {
 
   return {
     producer,
-    createConsumer: async () => {
+    createConsumer: () => {
       const devOnlyGroupId = `[dev]-queue-service-${Math.random()}`;
 
       const consumer = kafka.consumer({ groupId: devOnlyGroupId });
-      await consumer.connect();
-
-      await consumer.subscribe({
-        topic: args.topic,
-        fromBeginning: true,
-      });
 
       return {
         on: async (onQueueEvent: (event: QueueEvents) => void) => {
+          await consumer.connect();
+
+          await consumer.subscribe({
+            topic: args.topic,
+            fromBeginning: true,
+          });
+
           await consumer.run({
             eachMessage: async (payload) => {
               const value = payload.message.value;
@@ -62,34 +63,6 @@ export async function setupKafka(args: {
           await consumer.disconnect();
         },
       };
-
-      // return new Promise<CreateConsumer>((resolve) => {
-      //   consumer.on('consumer.group_join', () => {
-      //     console.log('consumer.group_join');
-      //     const toResolve: CreateConsumer = {
-      //       on: (onQueueEvent: (event: QueueEvents) => void) => {
-      //         consumer.run({
-      //           eachMessage: async (payload) => {
-      //             const value = payload.message.value;
-      //             if (value) {
-      //               try {
-      //                 const queueEvent = JSON.parse(value.toString());
-      //                 onQueueEvent(queueEvent);
-      //               } catch (e) {
-      //                 console.error(e);
-      //               }
-      //             }
-      //           },
-      //         });
-      //       },
-      //       close: async () => {
-      //         await consumer.disconnect();
-      //       },
-      //     };
-      //
-      //     resolve(toResolve);
-      //   });
-      // });
     },
   };
 

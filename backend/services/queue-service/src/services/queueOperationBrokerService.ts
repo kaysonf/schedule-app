@@ -12,6 +12,7 @@ export interface IQueueOperationBroker {
 }
 export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
   private idGen = 0;
+  private sequence = 0;
   constructor(
     private args: {
       topic: string;
@@ -38,6 +39,7 @@ export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
       queueId,
       op: QueueOperation.JoinQueue,
       joinId,
+      order: ++this.sequence,
     };
 
     await this.sendToQueueTopic(event);

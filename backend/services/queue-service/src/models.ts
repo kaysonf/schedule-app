@@ -27,5 +27,6 @@ export type ServeEvent = BaseEvent<QueueOperation.Serve> & {
 };
 export type JoinQueueEvent = BaseEvent<QueueOperation.JoinQueue> & {
   joinId: string;
+  order: number;
 };
 export type QueueEvents = ServeEvent | JoinQueueEvent;
