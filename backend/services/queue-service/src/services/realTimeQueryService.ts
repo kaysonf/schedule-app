@@ -2,123 +2,127 @@ import { Socket } from 'socket.io';
 import * as r from 'rethinkdb';
 import { QueueRow, QueueStatus } from '../models';
 import { logger } from '../logger';
+import { waitForCondition } from '../../../../shared/asyncUtils';
+type CleanupFn = () => void;
 
-type Handler<Msg> = {
-  fn: (msg: Msg) => Promise<void>;
-  cleanup: () => Promise<void>;
-};
+type QueryPayload = { queueId: string; limit?: number };
+
+const orderIndexName = 'order';
+
 export class RealTimeQueryService {
-  private cleanups: (() => Promise<void>)[] = [];
+  private socketCleanups: CleanupFn[] = [];
+  private indexCreation = waitForCondition('index creation');
 
   constructor(
-    private socket: Socket,
     private table: string,
     private conn: r.Connection
   ) {
-    this.addHandler('query', this.createQueryHandler());
+    this.createIndex().then(() => this.indexCreation.done());
+  }
+
+  public async addSocket(socket: Socket): Promise<void> {
+    await this.indexCreation.condition(2000);
+
+    const cleanupFns: CleanupFn[] = [];
+
+    socket.on('query', async (jsonString) => {
+      const msg = parseMessage<QueryPayload>(jsonString);
+      const cleanup = await this.handleQuery(socket, msg);
+      cleanupFns.push(cleanup);
+    });
+
+    const cleanupSocket = () => {
+      while (cleanupFns.length > 0) {
+        const cleanup = cleanupFns.shift();
+        if (cleanup) {
+          cleanup();
+        }
+      }
+    };
 
     socket.on('disconnect', () => {
-      this.cleanup();
+      logger.info(`${socket.id} disconnect`);
+      cleanupSocket();
     });
+
+    this.socketCleanups.push(cleanupSocket);
   }
 
-  public async cleanup() {
-    if (this.socket.connected) {
-      this.socket.disconnect();
-    }
-
-    for (const cleanup of this.cleanups) {
-      await cleanup();
-    }
-    this.cleanups = [];
-  }
-
-  private addHandler<Msg>(event: string, handler: Handler<Msg>) {
-    this.socket.on(event, async (jsonString) => {
-      let msg = jsonString;
-      if (typeof jsonString === 'string') {
-        // TODO remove
-        msg = JSON.parse(jsonString);
+  public cleanup() {
+    while (this.socketCleanups.length > 0) {
+      const cleanup = this.socketCleanups.shift();
+      if (cleanup) {
+        cleanup();
       }
-
-      await handler.fn(msg);
-    });
-    this.cleanups.push(handler.cleanup);
+    }
   }
 
-  private createQueryHandler(): Handler<{ queueId: string; limit?: number }> {
-    let sowCursor: r.Cursor;
-    let changeFeed: r.Cursor;
+  private async createIndex() {
+    const indexList = new Set(
+      await r.table(this.table).indexList().run(this.conn)
+    );
 
-    const orderIndexName = 'order';
+    if (!indexList.has(orderIndexName)) {
+      await r.table(this.table).indexCreate(orderIndexName).run(this.conn);
+    }
+  }
 
-    return {
-      fn: async (msg) => {
-        const indexList = new Set(
-          await r.table(this.table).indexList().run(this.conn)
-        );
+  private async handleQuery(socket: Socket, msg: QueryPayload) {
+    const defaultLimit = 30;
+    const maxLimit = 50;
+    const limit = Math.min(msg.limit ?? defaultLimit, maxLimit);
 
-        if (!indexList.has(orderIndexName)) {
-          await r.table(this.table).indexCreate(orderIndexName).run(this.conn);
+    const querySequence = r
+      .table(this.table)
+      .orderBy({ index: orderIndexName })
+      .limit(limit)
+      .filter({
+        queueId: msg.queueId,
+        status: QueueStatus.Open,
+      } satisfies Partial<QueueRow>);
+
+    const changeFeed = await querySequence
+      .changes({
+        includeInitial: true,
+        includeOffsets: false,
+        changefeedQueueSize: 100_000,
+        includeStates: false,
+        includeTypes: true,
+        squash: true,
+      })
+      .run(this.conn);
+
+    changeFeed.each(
+      (
+        err,
+        result: {
+          new_val: QueueRow | null;
+          old_val: QueueRow | null;
+          type: string;
+        }
+      ) => {
+        logger.info(`${socket.id} ${JSON.stringify(result)}`);
+        if (err) {
+          // TODO should emit to user
+          throw err;
         }
 
-        const defaultLimit = 30;
-        const maxLimit = 50;
-        const limit = Math.min(msg.limit ?? defaultLimit, maxLimit);
+        const data = result.new_val;
+        const msgData = data || result.old_val;
+        socket.emit('query_result', {
+          type: result.type,
+          data: msgData,
+        });
+      }
+    );
 
-        const querySequence = r
-          .table(this.table)
-          .orderBy({ index: orderIndexName })
-          .limit(limit)
-          .filter({
-            queueId: msg.queueId,
-            status: QueueStatus.Open,
-          } satisfies Partial<QueueRow>);
-
-        changeFeed = await querySequence
-          .changes({
-            includeInitial: true,
-            includeOffsets: false,
-            changefeedQueueSize: 100_000,
-            includeStates: false,
-            includeTypes: true,
-            squash: true,
-          })
-          .run(this.conn);
-
-        changeFeed.each(
-          (
-            err,
-            result: {
-              new_val: QueueRow | null;
-              old_val: QueueRow | null;
-              type: string;
-            }
-          ) => {
-            logger.info(`${JSON.stringify(result)}`);
-            if (err) {
-              // TODO should emit to user
-              throw err;
-            }
-
-            const data = result.new_val;
-            const msgData = data || result.old_val;
-            this.socket.emit('query_result', {
-              type: result.type,
-              data: msgData,
-            });
-          }
-        );
-      },
-      cleanup: async () => {
-        if (sowCursor) {
-          await sowCursor.close();
-        }
-
-        if (changeFeed) {
-          await changeFeed.close();
-        }
-      },
+    return () => {
+      logger.info(`${socket.id} closing changeFeed`);
+      changeFeed.close();
     };
   }
+}
+
+function parseMessage<T>(jsonString: JSON | string): T {
+  return typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
 }

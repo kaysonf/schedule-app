@@ -1,19 +1,17 @@
 import express from 'express';
 import { BaseQueueRequest } from '../models';
-
 import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
-import { logger } from '../logger';
 
 function createCustomerRouter(queueOperations: IQueueOperationBroker) {
   const router = express.Router();
 
   router.post(
     '/queue',
-    (req: express.Request<unknown, unknown, BaseQueueRequest>, res) => {
+    async (req: express.Request<unknown, unknown, BaseQueueRequest>, res) => {
       try {
-        queueOperations.joinQueue(req.body.queueId).catch(logger.error);
+        const result = await queueOperations.joinQueue(req.body.queueId);
 
-        res.json({ ok: true });
+        res.json({ ok: true, joinId: result.joinId });
       } catch (e) {
         res.json({ ok: false, error: e });
       }

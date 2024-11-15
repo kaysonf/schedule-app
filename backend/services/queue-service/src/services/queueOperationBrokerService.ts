@@ -5,6 +5,7 @@ import {
   QueueEvents,
   QueueOperation,
 } from '../models';
+import { logger } from '../logger';
 
 export interface IQueueOperationBroker {
   serve: (queueId: string, joinId: string) => Promise<ServeEvent>;
@@ -27,7 +28,7 @@ export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
       joinId,
     };
 
-    await this.sendToQueueTopic(event);
+    this.sendToQueueTopic(event).catch(logger.error);
 
     return event;
   }
@@ -42,7 +43,7 @@ export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
       order: ++this.sequence,
     };
 
-    await this.sendToQueueTopic(event);
+    this.sendToQueueTopic(event).catch(logger.error);
 
     return event;
   }

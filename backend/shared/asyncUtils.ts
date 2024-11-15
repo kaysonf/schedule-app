@@ -1,5 +1,5 @@
 export function waitForCondition(name?: string) {
-  let cond: () => void | undefined = undefined;
+  let cond: (() => void) | undefined = undefined;
   let done = false;
   let rejectTimer: NodeJS.Timeout;
   return {
@@ -15,7 +15,7 @@ export function waitForCondition(name?: string) {
       return new Promise((resolve, reject) => {
         cond = () => {
           clearTimeout(rejectTimer);
-          resolve();
+          resolve(name);
         };
         rejectTimer = setTimeout(
           () => reject(`condition ${name} timed out after ${timeout}ms`),

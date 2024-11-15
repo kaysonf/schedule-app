@@ -3,10 +3,10 @@ import { logger } from './logger';
 
 createServer({
   express: {
-    port: 3000,
+    port: 8081,
   },
   socketIo: {
-    port: 3001,
+    port: 8082,
   },
   reset: true,
   rethinkDb: {

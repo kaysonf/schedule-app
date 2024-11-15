@@ -11,6 +11,7 @@ import { Server } from 'socket.io';
 import { RealTimeQueryService } from './services/realTimeQueryService';
 import { logger } from './logger';
 import { logLevel } from 'kafkajs';
+import cors from 'cors';
 
 export type AppConfig = {
   express: {
@@ -35,16 +36,21 @@ export type AppConfig = {
 
 export async function createServer(config: AppConfig) {
   const app = express();
+  const corsOption: cors.CorsOptions = {
+    origin: [
+      'http://localhost:3000',
+      'https://electron-socket-io-playground.vercel.app',
+    ],
+    methods: ['GET', 'POST'],
+  };
+  app.use(cors(corsOption));
   app.use(express.json());
 
   const server = await app.listen(config.express.port);
   const socketIoServer = http.createServer();
   await socketIoServer.listen(config.socketIo.port);
   const io = new Server(socketIoServer, {
-    cors: {
-      origin: 'https://electron-socket-io-playground.vercel.app',
-      methods: ['GET', 'POST'],
-    },
+    cors: corsOption,
   });
 
   const conn = await setupRethinkDb({
@@ -77,10 +83,14 @@ export async function createServer(config: AppConfig) {
 
   app.use('/admin', creatAdminRouter(queueOperations));
   app.use('/customer', createCustomerRouter(queueOperations));
-  const rtqs: RealTimeQueryService[] = [];
+
+  const realTimeQueryService = new RealTimeQueryService(
+    config.rethinkDb.table,
+    conn
+  );
   io.on('connect', (socket) => {
-    const rtq = new RealTimeQueryService(socket, config.rethinkDb.table, conn);
-    rtqs.push(rtq);
+    logger.info(`io connect ${socket.id}`);
+    realTimeQueryService.addSocket(socket);
   });
 
   const consumer = createConsumer();
@@ -105,9 +115,7 @@ export async function createServer(config: AppConfig) {
 
   const shutdown = async () => {
     await socketIoServer.close();
-    for (const rtq of rtqs) {
-      await rtq.cleanup();
-    }
+    realTimeQueryService.cleanup();
     await io.close();
     await conn.close();
     await consumer.close();

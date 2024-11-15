@@ -6,10 +6,10 @@ import { logLevel } from 'kafkajs';
 
 const testConfig: AppConfig = {
   express: {
-    port: 3000,
+    port: 7171,
   },
   socketIo: {
-    port: 3001,
+    port: 7172,
   },
   reset: true,
   rethinkDb: {
@@ -58,7 +58,7 @@ describe('queue-service base workflow', () => {
   let client: Socket;
 
   const totalCustomers = 50;
-  const uniqueCustomers = new Map<string, QueueRow>();
+  const uniqueCustomers = new Set<string>();
   const queueId = 'ligma';
 
   beforeAll(async () => {
@@ -66,13 +66,14 @@ describe('queue-service base workflow', () => {
     app = await createServer(testConfig);
 
     client = io(`http://localhost:${testConfig.socketIo.port}`);
-    client.on('connect', done);
+    client.on('connect', () => done());
 
     await clientConnected(1000);
+    client.emit('query', { queueId, limit: 50 });
   });
 
   afterEach(() => {
-    client.removeAllListeners();
+    client.removeAllListeners('query_result');
   });
 
   afterAll(async () => {
@@ -80,11 +81,11 @@ describe('queue-service base workflow', () => {
     await app.shutdown();
   });
 
-  it('should allow the admin to observe the queue as customers join', async () => {
+  it('1. should allow the admin to observe the queue as customers join', async () => {
     const { done, condition } = waitForCondition('data loaded');
 
     client.on('query_result', (msg: { data: QueueRow; type: string }) => {
-      uniqueCustomers.set(msg.data.id, msg.data);
+      uniqueCustomers.add(msg.data.id);
       if (uniqueCustomers.size > totalCustomers) {
         throw Error('impossible');
       }
@@ -102,23 +103,21 @@ describe('queue-service base workflow', () => {
       customers.push(queue(queueId));
     }
 
-    // await to simulate "race" conditions, since a response from the server does not mean that data is written yet
     await Promise.all(customers);
-    client.emit('query', { queueId, limit: 50 });
 
     await condition(500);
     expect(uniqueCustomers.size).toStrictEqual(customers.length);
   });
 
-  it('should allow the admin to observe customers being served', (done) => {
-    const customer = uniqueCustomers.values().next().value as QueueRow;
+  it('2. should allow the admin to serve customers and observe the result', (done) => {
+    const customerId = uniqueCustomers.values().next().value as string;
 
     client.on('query_result', (msg: { data: QueueRow; type: string }) => {
       expect(msg.type).toStrictEqual('remove');
-      expect(msg.data.id).toStrictEqual(customer.id);
+      expect(msg.data.id).toStrictEqual(customerId);
       done();
     });
 
-    serve(customer.queueId, customer.id);
+    serve(queueId, customerId);
   });
 });
