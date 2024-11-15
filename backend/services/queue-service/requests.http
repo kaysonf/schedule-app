@@ -3,7 +3,7 @@ POST http://localhost:3000/customer/queue
 Content-Type: application/json
 
 {
-  "queueId": "nails"
+  "queueId": "ligma"
 }
 
 ###
@@ -11,6 +11,6 @@ POST http://localhost:3000/admin/serve
 Content-Type: application/json
 
 {
-  "queueId": "nails",
-  "joinId": "nails-1"
+  "queueId": "ligma",
+  "joinId": "ligma-2"
 }

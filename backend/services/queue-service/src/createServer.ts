@@ -9,6 +9,9 @@ import { QueueOperationsStateMachine } from './services/queueOperationsStateMach
 import http from 'http';
 import { Server } from 'socket.io';
 import { RealTimeQueryService } from './services/realTimeQueryService';
+import { logger } from './logger';
+import { logLevel } from 'kafkajs';
+
 export type AppConfig = {
   express: {
     port: number;
@@ -26,6 +29,7 @@ export type AppConfig = {
   kafka: {
     broker: string;
     topic: string;
+    logLevel?: logLevel;
   };
 };
 
@@ -55,6 +59,7 @@ export async function createServer(config: AppConfig) {
     reset: config.reset,
     broker: config.kafka.broker,
     topic: config.kafka.topic,
+    logLevel: config.kafka.logLevel,
   });
 
   const queueOperationsRethinkDbService = new QueueOperationsRethinkDbService({
@@ -82,7 +87,13 @@ export async function createServer(config: AppConfig) {
   await consumer.on((event) => {
     switch (event.op) {
       case QueueOperation.JoinQueue: {
-        queueOperationsStateMachine.onJoinQueue(event);
+        queueOperationsStateMachine
+          .onJoinQueue(event)
+          .then(() =>
+            logger.verbose(
+              `${QueueOperation.JoinQueue}: ${JSON.stringify(event)}`
+            )
+          );
         break;
       }
       case QueueOperation.Serve: {

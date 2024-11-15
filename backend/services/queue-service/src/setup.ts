@@ -1,14 +1,17 @@
-import { Kafka } from 'kafkajs';
+import { Kafka, logLevel } from 'kafkajs';
 import { QueueEvents } from './models';
 import * as r from 'rethinkdb';
+import { logger } from './logger';
 
 export async function setupKafka(args: {
   reset: boolean;
   broker: string;
   topic: string;
+  logLevel?: logLevel;
 }) {
   const kafka = new Kafka({
     brokers: [args.broker],
+    logLevel: args.logLevel,
   });
 
   const admin = kafka.admin();
@@ -53,7 +56,7 @@ export async function setupKafka(args: {
                   const queueEvent = JSON.parse(value.toString());
                   onQueueEvent(queueEvent);
                 } catch (e) {
-                  console.error(e);
+                  logger.error(e);
                 }
               }
             },

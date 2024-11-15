@@ -2,6 +2,7 @@ import { AppConfig, createServer } from '../src/createServer';
 import { QueueRow } from '../src/models';
 import { io, Socket } from 'socket.io-client';
 import { waitForCondition } from '../../../shared/asyncUtils';
+import { logLevel } from 'kafkajs';
 
 const testConfig: AppConfig = {
   express: {
@@ -20,6 +21,7 @@ const testConfig: AppConfig = {
   kafka: {
     broker: 'localhost:9092',
     topic: 'e2e-queue-topic',
+    logLevel: logLevel.NOTHING,
   },
 };
 
@@ -51,12 +53,12 @@ async function serve(queueId: string, joinId: string) {
   });
 }
 
-describe('queue-service test', () => {
+describe('queue-service base workflow', () => {
   let app: Awaited<ReturnType<typeof createServer>>;
   let client: Socket;
 
   const totalCustomers = 50;
-  const customersInQueue: QueueRow[] = [];
+  const uniqueCustomers = new Map<string, QueueRow>();
   const queueId = 'ligma';
 
   beforeAll(async () => {
@@ -69,21 +71,30 @@ describe('queue-service test', () => {
     await clientConnected(1000);
   });
 
+  afterEach(() => {
+    client.removeAllListeners();
+  });
+
   afterAll(async () => {
     client.disconnect();
     await app.shutdown();
   });
 
-  it('should queue', async () => {
-    const { done, condition } = waitForCondition();
+  it('should allow the admin to observe the queue as customers join', async () => {
+    const { done, condition } = waitForCondition('data loaded');
 
-    client.on('query_result', (row: { new_val: QueueRow }) => {
-      customersInQueue.push(row.new_val);
-      if (customersInQueue.length === totalCustomers) {
-        done();
+    client.on('query_result', (msg: { data: QueueRow; type: string }) => {
+      uniqueCustomers.set(msg.data.id, msg.data);
+      if (uniqueCustomers.size > totalCustomers) {
+        throw Error('impossible');
+      }
+
+      expect(msg.type).not.toStrictEqual('remove');
+
+      if (uniqueCustomers.size === totalCustomers) {
+        setTimeout(done, 100);
       }
     });
-    client.emit('query', { queueId });
 
     const customers: Promise<void>[] = [];
 
@@ -91,20 +102,23 @@ describe('queue-service test', () => {
       customers.push(queue(queueId));
     }
 
+    // await to simulate "race" conditions, since a response from the server does not mean that data is written yet
     await Promise.all(customers);
+    client.emit('query', { queueId, limit: 50 });
 
-    await condition(1000);
-    expect(customersInQueue.length).toStrictEqual(customers.length);
-
-    const uniqueOrdering = customersInQueue.reduce((ordering, curr) => {
-      ordering.add(curr.order);
-      return ordering;
-    }, new Set<number>());
-
-    expect(uniqueOrdering.size).toStrictEqual(customers.length);
+    await condition(500);
+    expect(uniqueCustomers.size).toStrictEqual(customers.length);
   });
 
-  // it('can serve', async () => {
-  //
-  // });
+  it('should allow the admin to observe customers being served', (done) => {
+    const customer = uniqueCustomers.values().next().value as QueueRow;
+
+    client.on('query_result', (msg: { data: QueueRow; type: string }) => {
+      expect(msg.type).toStrictEqual('remove');
+      expect(msg.data.id).toStrictEqual(customer.id);
+      done();
+    });
+
+    serve(customer.queueId, customer.id);
+  });
 });

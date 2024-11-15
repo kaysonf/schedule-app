@@ -2,6 +2,7 @@ import express from 'express';
 import { BaseQueueRequest } from '../models';
 
 import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
+import { logger } from '../logger';
 
 function creatAdminRouter(queueOperations: IQueueOperationBroker) {
   const router = express.Router();
@@ -19,7 +20,7 @@ function creatAdminRouter(queueOperations: IQueueOperationBroker) {
       try {
         queueOperations
           .serve(req.body.queueId, req.body.joinId)
-          .catch(console.error);
+          .catch(logger.error);
 
         res.json({ ok: true });
       } catch (e) {

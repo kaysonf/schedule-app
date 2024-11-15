@@ -1,10 +1,7 @@
 import { Socket } from 'socket.io';
 import * as r from 'rethinkdb';
-import { QueueRow } from '../models';
-
-function row(prop: keyof QueueRow) {
-  return r.row(prop);
-}
+import { QueueRow, QueueStatus } from '../models';
+import { logger } from '../logger';
 
 type Handler<Msg> = {
   fn: (msg: Msg) => Promise<void>;
@@ -12,6 +9,7 @@ type Handler<Msg> = {
 };
 export class RealTimeQueryService {
   private cleanups: (() => Promise<void>)[] = [];
+
   constructor(
     private socket: Socket,
     private table: string,
@@ -42,33 +40,83 @@ export class RealTimeQueryService {
         // TODO remove
         msg = JSON.parse(jsonString);
       }
+
       await handler.fn(msg);
     });
     this.cleanups.push(handler.cleanup);
   }
 
-  private createQueryHandler(): Handler<{ queueId: string }> {
-    let cursor: r.Cursor;
+  private createQueryHandler(): Handler<{ queueId: string; limit?: number }> {
+    let sowCursor: r.Cursor;
+    let changeFeed: r.Cursor;
+
+    const orderIndexName = 'order';
 
     return {
       fn: async (msg) => {
-        cursor = await r
+        const indexList = new Set(
+          await r.table(this.table).indexList().run(this.conn)
+        );
+
+        if (!indexList.has(orderIndexName)) {
+          await r.table(this.table).indexCreate(orderIndexName).run(this.conn);
+        }
+
+        const defaultLimit = 30;
+        const maxLimit = 50;
+        const limit = Math.min(msg.limit ?? defaultLimit, maxLimit);
+
+        const querySequence = r
           .table(this.table)
-          .filter(row('queueId').eq(msg.queueId))
-          .changes()
+          .orderBy({ index: orderIndexName })
+          .limit(limit)
+          .filter({
+            queueId: msg.queueId,
+            status: QueueStatus.Open,
+          } satisfies Partial<QueueRow>);
+
+        changeFeed = await querySequence
+          .changes({
+            includeInitial: true,
+            includeOffsets: false,
+            changefeedQueueSize: 100_000,
+            includeStates: false,
+            includeTypes: true,
+            squash: true,
+          })
           .run(this.conn);
 
-        cursor.each((err, result) => {
-          if (err) {
-            // TODO should emit to user
-            throw err;
+        changeFeed.each(
+          (
+            err,
+            result: {
+              new_val: QueueRow | null;
+              old_val: QueueRow | null;
+              type: string;
+            }
+          ) => {
+            logger.info(`${JSON.stringify(result)}`);
+            if (err) {
+              // TODO should emit to user
+              throw err;
+            }
+
+            const data = result.new_val;
+            const msgData = data || result.old_val;
+            this.socket.emit('query_result', {
+              type: result.type,
+              data: msgData,
+            });
           }
-          this.socket.emit('query_result', result);
-        });
+        );
       },
       cleanup: async () => {
-        if (cursor) {
-          await cursor.close();
+        if (sowCursor) {
+          await sowCursor.close();
+        }
+
+        if (changeFeed) {
+          await changeFeed.close();
         }
       },
     };

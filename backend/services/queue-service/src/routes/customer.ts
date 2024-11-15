@@ -2,6 +2,7 @@ import express from 'express';
 import { BaseQueueRequest } from '../models';
 
 import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
+import { logger } from '../logger';
 
 function createCustomerRouter(queueOperations: IQueueOperationBroker) {
   const router = express.Router();
@@ -10,7 +11,7 @@ function createCustomerRouter(queueOperations: IQueueOperationBroker) {
     '/queue',
     (req: express.Request<unknown, unknown, BaseQueueRequest>, res) => {
       try {
-        queueOperations.joinQueue(req.body.queueId).catch(console.error);
+        queueOperations.joinQueue(req.body.queueId).catch(logger.error);
 
         res.json({ ok: true });
       } catch (e) {

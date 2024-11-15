@@ -1,4 +1,5 @@
 import { createServer } from './createServer';
+import { logger } from './logger';
 
 createServer({
   express: {
@@ -18,4 +19,4 @@ createServer({
     broker: 'localhost:9092',
     topic: 'yomamam',
   },
-}).catch(console.error);
+}).catch(logger.error);
