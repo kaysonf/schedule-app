@@ -1,10 +1,10 @@
 import express from 'express';
 import { BaseQueueRequest } from '../models';
 
-import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
+import { IQueueOperationProducer } from '../services/QueueOperationProducer';
 import { logger } from '../logger';
 
-function creatAdminRouter(queueOperations: IQueueOperationBroker) {
+function creatAdminRouter(queueOperations: IQueueOperationProducer) {
   const router = express.Router();
 
   router.post(

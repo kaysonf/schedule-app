@@ -1,8 +1,8 @@
 import express from 'express';
 import { BaseQueueRequest } from '../models';
-import { IQueueOperationBroker } from '../services/queueOperationBrokerService';
+import { IQueueOperationProducer } from '../services/QueueOperationProducer';
 
-function createCustomerRouter(queueOperations: IQueueOperationBroker) {
+function createCustomerRouter(queueOperations: IQueueOperationProducer) {
   const router = express.Router();
 
   router.post(

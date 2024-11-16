@@ -7,11 +7,11 @@ import {
 } from '../models';
 import { logger } from '../logger';
 
-export interface IQueueOperationBroker {
+export interface IQueueOperationProducer {
   serve: (queueId: string, joinId: string) => Promise<ServeEvent>;
   joinQueue: (queueId: string) => Promise<JoinQueueEvent>;
 }
-export class QueueOperationKafkaBrokerService implements IQueueOperationBroker {
+export class QueueOperationKafkaProducer implements IQueueOperationProducer {
   private idGen = 0;
   private sequence = 0;
   constructor(

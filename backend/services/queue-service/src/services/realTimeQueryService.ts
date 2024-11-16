@@ -41,7 +41,7 @@ export class RealTimeQueryService {
     };
 
     socket.on('disconnect', () => {
-      logger.info(`${socket.id} disconnect`);
+      logger.verbose(`${socket.id} disconnect`);
       cleanupSocket();
     });
 
@@ -101,7 +101,7 @@ export class RealTimeQueryService {
           type: string;
         }
       ) => {
-        logger.info(`${socket.id} ${JSON.stringify(result)}`);
+        logger.verbose(`${socket.id} ${JSON.stringify(result)}`);
         if (err) {
           // TODO should emit to user
           throw err;
@@ -117,12 +117,12 @@ export class RealTimeQueryService {
     );
 
     return () => {
-      logger.info(`${socket.id} closing changeFeed`);
+      logger.verbose(`${socket.id} closing changeFeed`);
       changeFeed.close();
     };
   }
 }
 
-function parseMessage<T>(jsonString: JSON | string): T {
+function parseMessage<T>(jsonString: T | string): T {
   return typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
 }

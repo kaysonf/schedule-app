@@ -1,11 +1,11 @@
 import express from 'express';
 import creatAdminRouter from './routes/admin';
 import createCustomerRouter from './routes/customer';
-import { QueueOperationKafkaBrokerService } from './services/queueOperationBrokerService';
+import { QueueOperationKafkaProducer } from './services/QueueOperationProducer';
 import { setupKafka, setupRethinkDb } from './setup';
 import { QueueOperationsRethinkDbService } from './services/queueOperationsDbService';
 import { QueueOperation } from './models';
-import { QueueOperationsStateMachine } from './services/queueOperationsStateMachine';
+import { QueueOperationsConsumer } from './services/queueOperationsConsumer';
 import http from 'http';
 import { Server } from 'socket.io';
 import { RealTimeQueryService } from './services/realTimeQueryService';
@@ -68,49 +68,45 @@ export async function createServer(config: AppConfig) {
     logLevel: config.kafka.logLevel,
   });
 
-  const queueOperationsRethinkDbService = new QueueOperationsRethinkDbService({
+  const db = new QueueOperationsRethinkDbService({
     conn: conn,
     table: config.rethinkDb.table,
   });
-  const queueOperationsStateMachine = new QueueOperationsStateMachine(
-    queueOperationsRethinkDbService
-  );
 
-  const queueOperations = new QueueOperationKafkaBrokerService({
+  const queueOperationsProducer = new QueueOperationKafkaProducer({
     topic: config.kafka.topic,
     producer,
   });
 
-  app.use('/admin', creatAdminRouter(queueOperations));
-  app.use('/customer', createCustomerRouter(queueOperations));
+  app.use('/admin', creatAdminRouter(queueOperationsProducer));
+  app.use('/customer', createCustomerRouter(queueOperationsProducer));
 
   const realTimeQueryService = new RealTimeQueryService(
     config.rethinkDb.table,
     conn
   );
+
   io.on('connect', (socket) => {
     logger.info(`io connect ${socket.id}`);
     realTimeQueryService.addSocket(socket);
   });
 
+  const queueOperationsConsumer = new QueueOperationsConsumer(db);
+
   const consumer = createConsumer();
-  await consumer.on((event) => {
+  await consumer.on(async (event) => {
     switch (event.op) {
       case QueueOperation.JoinQueue: {
-        queueOperationsStateMachine
-          .onJoinQueue(event)
-          .then(() =>
-            logger.verbose(
-              `${QueueOperation.JoinQueue}: ${JSON.stringify(event)}`
-            )
-          );
+        await queueOperationsConsumer.onJoinQueue(event);
         break;
       }
       case QueueOperation.Serve: {
-        queueOperationsStateMachine.onServe(event);
+        await queueOperationsConsumer.onServe(event);
         break;
       }
     }
+
+    logger.verbose(`${JSON.stringify(event)}`);
   });
 
   const shutdown = async () => {
