@@ -4,24 +4,30 @@ import { io, Socket } from 'socket.io-client';
 import { waitForCondition } from '../../../shared/asyncUtils';
 import { logLevel } from 'kafkajs';
 
+const reset = true;
+
 const testConfig: AppConfig = {
+  logLevel: 'verbose',
   express: {
     port: 7171,
   },
   socketIo: {
     port: 7172,
   },
-  reset: true,
   rethinkDb: {
     db: 'test',
     table: 'e2e-queue',
     host: 'localhost',
     port: 28015,
+    reset,
   },
   kafka: {
     broker: 'localhost:9092',
     topic: 'e2e-queue-topic',
     logLevel: logLevel.NOTHING,
+    consumerGroupId: `[e2e]-queue-service-${Math.random()}`,
+    clientId: 'e2e-queue-service',
+    reset,
   },
 };
 
@@ -91,7 +97,6 @@ describe('queue-service base workflow', () => {
       }
 
       expect(msg.type).not.toStrictEqual('remove');
-
       if (uniqueCustomers.size === totalCustomers) {
         setTimeout(done, 100);
       }

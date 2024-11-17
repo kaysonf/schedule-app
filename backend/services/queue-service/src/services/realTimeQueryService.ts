@@ -1,13 +1,15 @@
 import { Socket } from 'socket.io';
 import * as r from 'rethinkdb';
 import { QueueRow, QueueStatus } from '../models';
-import { logger } from '../logger';
+import { createLogger } from '../logger';
 import { waitForCondition } from '../../../../shared/asyncUtils';
-type CleanupFn = () => void;
+type CleanupFn = () => Promise<void>;
 
 type QueryPayload = { queueId: string; limit?: number };
 
 const orderIndexName = 'order';
+
+const logger = createLogger('RealTimeQueryService');
 
 export class RealTimeQueryService {
   private socketCleanups: CleanupFn[] = [];
@@ -31,11 +33,11 @@ export class RealTimeQueryService {
       cleanupFns.push(cleanup);
     });
 
-    const cleanupSocket = () => {
+    const cleanupSocket = async () => {
       while (cleanupFns.length > 0) {
         const cleanup = cleanupFns.shift();
         if (cleanup) {
-          cleanup();
+          await cleanup();
         }
       }
     };
@@ -116,9 +118,9 @@ export class RealTimeQueryService {
       }
     );
 
-    return () => {
+    return async () => {
       logger.verbose(`${socket.id} closing changeFeed`);
-      changeFeed.close();
+      await changeFeed.close();
     };
   }
 }

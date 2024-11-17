@@ -1,5 +1,6 @@
 import { createServer } from './createServer';
-import { logger } from './logger';
+
+const reset = true;
 
 createServer({
   express: {
@@ -8,15 +9,18 @@ createServer({
   socketIo: {
     port: 8082,
   },
-  reset: true,
   rethinkDb: {
+    reset,
     db: 'test',
     table: 'queue',
     host: 'localhost',
     port: 28015,
   },
   kafka: {
+    reset,
     broker: 'localhost:9092',
     topic: 'yomamam',
+    consumerGroupId: `[e2e]-queue-service-${Math.random()}`,
+    clientId: 'queue-service',
   },
-}).catch(logger.error);
+});

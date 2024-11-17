@@ -5,8 +5,8 @@ import {
   QueueEvents,
   QueueOperation,
 } from '../models';
-import { logger } from '../logger';
-
+import { createLogger } from '../logger';
+const logger = createLogger('QueueOperationKafkaProducer');
 export interface IQueueOperationProducer {
   serve: (queueId: string, joinId: string) => Promise<ServeEvent>;
   joinQueue: (queueId: string) => Promise<JoinQueueEvent>;

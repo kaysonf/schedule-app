@@ -1,7 +1,7 @@
 import { JoinQueueEvent, ServeEvent, QueueRow, QueueStatus } from '../models';
 import { IQueueOperationsDb } from './queueOperationsDbService';
 
-export class QueueOperationsConsumer {
+export class QueueOperationsService {
   constructor(private queueOperationsDb: IQueueOperationsDb) {}
 
   public async onJoinQueue(event: JoinQueueEvent) {

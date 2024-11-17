@@ -5,33 +5,23 @@ import { QueueOperationKafkaProducer } from './services/QueueOperationProducer';
 import { setupKafka, setupRethinkDb } from './setup';
 import { QueueOperationsRethinkDbService } from './services/queueOperationsDbService';
 import { QueueOperation } from './models';
-import { QueueOperationsConsumer } from './services/queueOperationsConsumer';
+import { QueueOperationsService } from './services/queueOperationsService';
 import http from 'http';
 import { Server } from 'socket.io';
 import { RealTimeQueryService } from './services/realTimeQueryService';
-import { logger } from './logger';
-import { logLevel } from 'kafkajs';
+import { setAppLogLevel, createLogger } from './logger';
 import cors from 'cors';
 
 export type AppConfig = {
+  logLevel?: 'verbose' | 'info';
   express: {
     port: number;
   };
   socketIo: {
     port: number;
   };
-  reset: boolean;
-  rethinkDb: {
-    db: string;
-    table: string;
-    host: string;
-    port: number;
-  };
-  kafka: {
-    broker: string;
-    topic: string;
-    logLevel?: logLevel;
-  };
+  rethinkDb: Parameters<typeof setupRethinkDb>[0];
+  kafka: Parameters<typeof setupKafka>[0];
 };
 
 export async function createServer(config: AppConfig) {
@@ -46,6 +36,8 @@ export async function createServer(config: AppConfig) {
   app.use(cors(corsOption));
   app.use(express.json());
 
+  setAppLogLevel(config.logLevel || 'info');
+
   const server = await app.listen(config.express.port);
   const socketIoServer = http.createServer();
   await socketIoServer.listen(config.socketIo.port);
@@ -53,20 +45,9 @@ export async function createServer(config: AppConfig) {
     cors: corsOption,
   });
 
-  const conn = await setupRethinkDb({
-    host: config.rethinkDb.host,
-    port: config.rethinkDb.port,
-    db: config.rethinkDb.db,
-    table: config.rethinkDb.table,
-    reset: config.reset,
-  });
+  const conn = await setupRethinkDb(config.rethinkDb);
 
-  const { producer, createConsumer } = await setupKafka({
-    reset: config.reset,
-    broker: config.kafka.broker,
-    topic: config.kafka.topic,
-    logLevel: config.kafka.logLevel,
-  });
+  const { producer, createConsumer } = await setupKafka(config.kafka);
 
   const db = new QueueOperationsRethinkDbService({
     conn: conn,
@@ -86,13 +67,15 @@ export async function createServer(config: AppConfig) {
     conn
   );
 
+  const ioLogger = createLogger('io');
   io.on('connect', (socket) => {
-    logger.info(`io connect ${socket.id}`);
+    ioLogger.info(`io connect ${socket.id}`);
     realTimeQueryService.addSocket(socket);
   });
 
-  const queueOperationsConsumer = new QueueOperationsConsumer(db);
+  const queueOperationsConsumer = new QueueOperationsService(db);
 
+  const consumerLogger = createLogger('msg consumer');
   const consumer = createConsumer();
   await consumer.on(async (event) => {
     switch (event.op) {
@@ -106,12 +89,12 @@ export async function createServer(config: AppConfig) {
       }
     }
 
-    logger.verbose(`${JSON.stringify(event)}`);
+    consumerLogger.verbose(`${JSON.stringify(event)}`);
   });
 
   const shutdown = async () => {
     await socketIoServer.close();
-    realTimeQueryService.cleanup();
+    await realTimeQueryService.cleanup();
     await io.close();
     await conn.close();
     await consumer.close();

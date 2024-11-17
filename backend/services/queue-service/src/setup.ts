@@ -1,17 +1,21 @@
 import { Kafka, logLevel } from 'kafkajs';
 import { QueueEvents } from './models';
 import * as r from 'rethinkdb';
-import { logger } from './logger';
+import { createLogger } from './logger';
 
+const kafkaConsumerLogger = createLogger('kafka consumer');
 export async function setupKafka(args: {
   reset: boolean;
   broker: string;
   topic: string;
+  consumerGroupId: string;
+  clientId: string;
   logLevel?: logLevel;
 }) {
   const kafka = new Kafka({
     brokers: [args.broker],
     logLevel: args.logLevel,
+    clientId: args.clientId,
   });
 
   const admin = kafka.admin();
@@ -35,10 +39,7 @@ export async function setupKafka(args: {
   return {
     producer,
     createConsumer: () => {
-      const devOnlyGroupId = `[dev]-queue-service-${Math.random()}`;
-
-      const consumer = kafka.consumer({ groupId: devOnlyGroupId });
-
+      const consumer = kafka.consumer({ groupId: args.consumerGroupId });
       return {
         on: async (onQueueEvent: (event: QueueEvents) => void) => {
           await consumer.connect();
@@ -56,7 +57,7 @@ export async function setupKafka(args: {
                   const queueEvent = JSON.parse(value.toString());
                   onQueueEvent(queueEvent);
                 } catch (e) {
-                  logger.error(e);
+                  kafkaConsumerLogger.error(e);
                 }
               }
             },
